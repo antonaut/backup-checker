@@ -2,13 +2,20 @@ const walker = require('walker')
 const XXHash = require('xxhash')
 const fs = require('fs')
 const _ = require('lodash')
+const process = require('process')
 
+let scandir = '.'
+
+if (process.argv[2]) {
+    scandir = process.argv[2]
+}
+console.log(`scandir: ${scandir}`)
 
 let result = []
 let totalHashed = 0
 let proms = [
     new Promise((res, rej) => {
-        walker('.')
+        walker(scandir)
             .on('file', (file, stat) => {
                 var hasher = new XXHash(0xCAFEBABE)
                 result.push({ file, hasher })
@@ -27,8 +34,7 @@ let proms = [
             }).on('end', () => {
                 res()
             }).on('error', (err) => {
-                console.error(err)
-                rej()
+                rej(err)
             })
     })]
 
@@ -42,4 +48,6 @@ Promise.all(proms).then(() => {
         console.log()
     })
     console.log(`found ${duplicates.length} cases of duplication`)
+}).catch((err) => {
+    console.error(`Something went wrong: ${err}`)
 })
