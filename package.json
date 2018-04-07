@@ -20,5 +20,10 @@
   "bugs": {
     "url": "https://github.com/antonaut/backup-checker/issues"
   },
-  "homepage": "https://github.com/antonaut/backup-checker#readme"
+  "homepage": "https://github.com/antonaut/backup-checker#readme",
+  "dependencies": {
+    "lodash": "^4.17.5",
+    "walker": "^1.0.7",
+    "xxhash": "^0.2.4"
+  }
 }
