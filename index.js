@@ -2,7 +2,8 @@ const klaw = require('klaw')
 const through = require('through2')
 const XXHash = require('xxhashjs')
 const _ = require('lodash')
-const bluebird = require('bluebird')
+const Promise = require('bluebird')
+const streamToPromise = require('stream-to-promise')
 const fs = require('fs')
 const process = require('process')
 const stream = require('stream')
@@ -15,15 +16,16 @@ if (process.argv[2]) {
 }
 console.log(`Running in folder: ${scandir}`)
 
-const hashFile = hasher => file =>
-    new bluebird((resolve, reject) => {
-        fs.createReadStream(file)
+const hashFile = hasher => path =>
+    new Promise((resolve, reject) => {
+        console.log(`hashing file: ${path}`)
+        fs.createReadStream(path)
             .on('data', function (data) {
                 hasher.update(data)
             })
             .on('end', () => {
                 resolve({
-                    file,
+                    path,
                     hash: hasher.digest().toString(16)
                 })
             })
@@ -32,8 +34,9 @@ const hashFile = hasher => file =>
             })
     })
 
-const hashDir = dir => new bluebird((resolve, reject) => {
-    fs.readdir(dir, (err, files) => {
+const hashDir = dir => new Promise((resolve, reject) => {
+    console.log(`hashing dir: ${dir.path}`)
+    fs.readdir(dir.path, (err, files) => {
         const hasher = new XXHash.h64(0xDEADBEEF)
         if (err) {
             reject(err)
@@ -47,16 +50,17 @@ const hashDir = dir => new bluebird((resolve, reject) => {
 let result = []
 let totalHashed = 0
 
-const subdirs = klaw(scandir)
-    .pipe(through.obj((item, enc, next) => {
+const subdirs = Promise.resolve(streamToPromise(klaw(scandir)
+    .pipe(through.obj(function (item, enc, next) {
         if (item.stats.isDirectory()) this.push(item)
         next()
-    }))
+    }))))
 
-bluebird.map(subdirs,
+Promise.map(subdirs,
     hashDir,
     { concurrency: 4 })
     .then((digests) => {
+        console.log(digests)
         let duplicates = _(digests)
             .groupBy('hash')
             .pickBy(x => x.length > 1)
@@ -64,7 +68,7 @@ bluebird.map(subdirs,
             .value()
         _(duplicates).each(dups => {
             _(dups).each(f => {
-                console.log(f.file)
+                console.log(f.path)
             })
             console.log()
         })

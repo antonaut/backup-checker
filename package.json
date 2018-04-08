@@ -25,6 +25,7 @@
     "bluebird": "^3.5.1",
     "klaw": "^2.1.1",
     "lodash": "^4.17.5",
+    "stream-to-promise": "^2.2.0",
     "through2": "^2.0.3",
     "walker": "^1.0.7",
     "xxhashjs": "^0.2.2"
