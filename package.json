@@ -4,7 +4,7 @@
   "description": "a utility for finding duplicates and difference in folders",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "node index.js"
   },
   "repository": {
     "type": "git",
@@ -22,8 +22,11 @@
   },
   "homepage": "https://github.com/antonaut/backup-checker#readme",
   "dependencies": {
+    "bluebird": "file:node_modules/bluebird",
+    "klaw": "^2.1.1",
     "lodash": "^4.17.5",
+    "through2": "^2.0.3",
     "walker": "^1.0.7",
-    "xxhash": "^0.2.4"
+    "xxhashjs": "^0.2.2"
   }
 }
