@@ -1,10 +1,10 @@
-const klaw = require('klaw')
+const walker = require('walk')
 const through = require('through2')
 const XXHash = require('xxhashjs')
 const _ = require('lodash')
 const Promise = require('bluebird')
 const streamToPromise = require('stream-to-promise')
-const fs = require('fs')
+const fs = Promise.promisifyAll(require('fs'))
 const process = require('process')
 const stream = require('stream')
 
@@ -34,14 +34,19 @@ const hashFile = hasher => path =>
             })
     })
 
-const hashDir = dir => new Promise((resolve, reject) => {
-    console.log(`hashing dir: ${dir.path}`)
-    fs.readdir(dir.path, (err, files) => {
+const hashDir = ({
+    dir,
+    size
+}) => new Promise((resolve, reject) => {
+    console.log(`Starting to hash ${size} bytes in ${dir}`)
+    fs.readdir(dir, (err, files) => {
         const hasher = new XXHash.h64(0xDEADBEEF)
         if (err) {
             reject(err)
         }
+        // todo map only over files 
         resolve(_(files)
+            .map(file => dir + '/' + file)
             .map(hashFile(hasher)))
     })
 })
@@ -50,29 +55,52 @@ const hashDir = dir => new Promise((resolve, reject) => {
 let result = []
 let totalHashed = 0
 
-const subdirs = Promise.resolve(streamToPromise(klaw(scandir)
-    .pipe(through.obj(function (item, enc, next) {
-        if (item.stats.isDirectory()) this.push(item)
-        next()
-    }))))
 
-Promise.map(subdirs,
-    hashDir,
-    { concurrency: 4 })
-    .then((digests) => {
-        console.log(digests)
-        let duplicates = _(digests)
-            .groupBy('hash')
-            .pickBy(x => x.length > 1)
-            .values()
-            .value()
-        _(duplicates).each(dups => {
-            _(dups).each(f => {
-                console.log(f.path)
+const files = dir => {
+    return fs.readdirAsync(dir)
+}
+
+const dirTotal = dir => files(dir)
+    .map((file) => new Promise((resolve, reject) => {
+        fs.lstat(dir + '/' + file, (err, stats) => {
+            if (err) {
+                reject(err)
+            }
+            resolve({
+                path: file,
+                stats: stats
             })
-            console.log()
         })
-        console.log(`found ${duplicates.length} cases of duplication`)
-    }).catch((err) => {
-        console.error(`Something went wrong: ${err}`)
+    })).reduce((total, file) => {
+        if (file.stats.isFile()) {
+            total += file.stats.size
+        }
+        return total
+    }, 0)
+
+const EventEmitter = require('events');
+
+class HashEmitter extends EventEmitter {}
+const hashEmitter = new HashEmitter();
+hashEmitter.on('dirsize', (dirSize) => {
+    hashDirLimited(dirSize).then(console.log.bind(console))
+});
+
+
+const Bottleneck = require("bottleneck");
+const limiter = new Bottleneck({
+    maxConcurrent: 5,
+});
+
+let hashDirLimited = limiter.wrap(hashDir)
+
+walker.walk(scandir)
+    .on('directories', (root, stats, next) => {
+        dirTotal(root).then(size => {
+            hashEmitter.emit('dirsize', {
+                dir: root,
+                size
+            })
+        })
+        next()
     })
