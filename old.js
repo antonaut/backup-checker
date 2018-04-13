@@ -1,24 +1,3 @@
-const walker = require('walk')
-const _ = require('lodash')
-const Promise = require('bluebird')
-const streamToPromise = require('stream-to-promise')
-const fs = Promise.promisifyAll(require('fs'))
-const process = require('process')
-const stream = require('stream')
-const EventEmitter = require('events')
-
-const dir = require('./lib/dir')
-const {
-    hashDirectory
-} = require('./lib/hasher')
-
-let scandir = '.'
-
-if (process.argv[2]) {
-    scandir = process.argv[2]
-}
-console.log(`Running in folder: ${scandir}`)
-
 let result = []
 let totalHashed = 0
 
