@@ -19,6 +19,9 @@ let skipZeroSize = true
 
 if (process.argv[2]) {
     scandir = process.argv[2]
+    if (scandir.endsWith('\\')) {
+        scandir = scandir.substr(0, scandir.length - 1)
+    }
 }
 
 let totalFiles = 0
@@ -37,8 +40,8 @@ const getBarInterruptMessage = () => {
 }
 
 let bar = new ProgressBar('Processed (:current / :total) files, hashed :totalHashed files, found :totalDuplicates duplicates', {
-    total: totalFiles,
-    curr: totalDecided
+    total: Math.max(totalFiles, 1),
+    curr: Math.max(totalDecided, 1)
 })
 const redisplayBar = () => {
     curr = Math.max(Math.min(totalHashed + totalUniques + totalWhats + totalZeros, totalDecided))
@@ -111,39 +114,39 @@ let main = new Promise((resolve, reject) => {
     w.on('end', () => {
         resultStream.write(`Done walking in '${scandir}'. There are ${totalFiles} files in total.\n`)
         Promise.map(hashPromises, ({
-                path,
-                stat,
-                hash
-            }) => {
-                const what = uniqueByHash[hash]
-                if (what) {
-                    let dups = duplicates[hash]
-                    if (!dups) {
-                        dups = [what]
-                        totalWhats++
-                        totalUniques--
-                        totalDuplicates++
-                    }
-                    dups.push(path)
+            path,
+            stat,
+            hash
+        }) => {
+            const what = uniqueByHash[hash]
+            if (what) {
+                let dups = duplicates[hash]
+                if (!dups) {
+                    dups = [what]
+                    totalWhats++
+                    totalUniques--
                     totalDuplicates++
-                    duplicates[hash] = dups
-                    //throw new Error(`Collision! ${what} and ${path} have same hash (${hash})`)
-                } else {
-                    uniqueByHash[hash] = path
                 }
-                totalHashed++
-            }).then(() => {
-                resultStream.write(`Hashed ${totalHashed} files.\n`)
-                resultStream.write(`There were ${totalUniques} files with unique size.\n`)
-                resultStream.write(`Found ${totalDuplicates} duplicates:\n`)
-                _(duplicates).values().each(dups => {
-                    resultStream.write('\n')
-                    _(dups).each(path => {
-                        resultStream.write(`${path}\n`)
-                    })
+                dups.push(path)
+                totalDuplicates++
+                duplicates[hash] = dups
+                //throw new Error(`Collision! ${what} and ${path} have same hash (${hash})`)
+            } else {
+                uniqueByHash[hash] = path
+            }
+            totalHashed++
+        }).then(() => {
+            resultStream.write(`Hashed ${totalHashed} files.\n`)
+            resultStream.write(`There were ${totalUniques} files with unique size.\n`)
+            resultStream.write(`Found ${totalDuplicates} duplicates:\n`)
+            _(duplicates).values().each(dups => {
+                resultStream.write('\n')
+                _(dups).each(path => {
+                    resultStream.write(`${path}\n`)
                 })
-                resolve()
             })
+            resolve()
+        })
             .catch(err => {
                 reject(err)
             })
