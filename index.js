@@ -5,7 +5,6 @@ const streamToPromise = require('stream-to-promise')
 const fs = Promise.promisifyAll(require('fs'))
 const process = require('process')
 const stream = require('stream')
-const EventEmitter = require('events')
 const ProgressBar = require('progress')
 
 const dir = require('./lib/dir')
@@ -16,6 +15,7 @@ const {
 let scandir = '.'
 let resultsFile = './results.txt'
 const resultStream = fs.createWriteStream(resultsFile)
+let skipZeroSize = true
 
 if (process.argv[2]) {
     scandir = process.argv[2]
@@ -26,6 +26,7 @@ let totalDecided = 0
 let totalHashed = 0
 let totalUniques = 0
 let totalDuplicates = 0
+let totalZeros = 0
 
 // A what is a file that is reclassified 
 // from being unique by size to being unique by hash
@@ -35,12 +36,12 @@ const getBarInterruptMessage = () => {
     return `H=${totalHashed}, U=${totalUniques}, D=${totalDuplicates}`
 }
 
-let bar = new ProgressBar('processed (:current / :total) files, hashed :totalHashed files, found :totalDuplicates duplicates', {
+let bar = new ProgressBar('Processed (:current / :total) files, hashed :totalHashed files, found :totalDuplicates duplicates', {
     total: totalFiles,
     curr: totalDecided
 })
 const redisplayBar = () => {
-    curr = Math.max(Math.min(totalHashed + totalUniques + totalWhats, totalDecided))
+    curr = Math.max(Math.min(totalHashed + totalUniques + totalWhats + totalZeros, totalDecided))
     total = Math.max(totalDecided, curr)
     bar.curr = curr
     bar.total = total
@@ -49,37 +50,16 @@ const redisplayBar = () => {
         totalDuplicates
     })
 }
-console.log(`Walking in '${scandir}'. A progress bar will show as soon as we are done walking.`)
+let barTimer = setInterval(redisplayBar, 200)
 
-class HashEmitter extends EventEmitter {}
-const eventEmitter = new HashEmitter();
-eventEmitter.on('fileShouldBeHashed', ({
-    path,
-    stat
-}) => {
-    hashPromises.push(hashFileLimited(path, stat))
-})
-
-eventEmitter.on('fileHashed', () => {
-    totalHashed++
-    redisplayBar()
-})
-
-eventEmitter.on('fileHasUniqueSize', () => {
-    totalUniques++
-    redisplayBar()
-})
-
-eventEmitter.on('foundDuplicates', () => {
-    bar.render({
-        totalDuplicates
-    })
-})
+console.log(`Walking '${scandir}'. Hashing will start as soon as we are done walking.`)
+console.log(`A report with the duplicates will be written to '${resultsFile}'.`)
 
 const Bottleneck = require("bottleneck");
 const limiter = new Bottleneck({
     maxConcurrent: 5,
 })
+
 const hashFileLimited = limiter.wrap(hashFile)
 
 let hashPromises = []
@@ -95,20 +75,19 @@ const decideUnique = ({
     const size = stat.size
     const old = uniqueBySize[size]
     totalDecided++
-    if (!old) {
-        uniqueBySize[size] = path
-        eventEmitter.emit('fileHasUniqueSize', {
-            path
-        })
+    if (skipZeroSize && size === 0) {
+        totalZeros++
         return
     }
-    eventEmitter.emit('fileShouldBeHashed', {
-        path,
-        stat
-    })
+    if (!old) {
+        uniqueBySize[size] = path
+        totalUniques++
+        return
+    }
+    hashPromises.push(hashFileLimited(path, stat))
 }
 
-let p = new Promise((resolve, reject) => {
+let main = new Promise((resolve, reject) => {
     const w = walker.walk(scandir)
 
     w.on('file', (root, stats, next) => {
@@ -148,15 +127,11 @@ let p = new Promise((resolve, reject) => {
                     dups.push(path)
                     totalDuplicates++
                     duplicates[hash] = dups
-                    eventEmitter.emit('foundDuplicates')
                     //throw new Error(`Collision! ${what} and ${path} have same hash (${hash})`)
                 } else {
                     uniqueByHash[hash] = path
                 }
-                eventEmitter.emit('fileHashed', {
-                    path,
-                    stat
-                })
+                totalHashed++
             }).then(() => {
                 resultStream.write(`Hashed ${totalHashed} files.\n`)
                 resultStream.write(`There were ${totalUniques} files with unique size.\n`)
@@ -175,8 +150,10 @@ let p = new Promise((resolve, reject) => {
     })
 })
 
-p.then(() => {
-    console.log('\nDone.')
+Promise.resolve(main).then(() => {
+    clearInterval(barTimer)
+    redisplayBar()
+    console.log('.\nDone.')
 }).catch(err => {
     console.error(err)
 })
